@@ -9,7 +9,9 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
@@ -46,10 +48,33 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("秒杀已结束");
         }
 
+        // 改进：一人一单
+        Long userId = UserHolder.getUser().getId();
+
+        // 加锁防止一人一单功能失效
+        synchronized (userId.toString().intern()) {
+            // 获取代理对象（事务）
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            return proxy.createVoucherOrder(voucherId, userId);
+        }
+    }
+
+    @Transactional
+    public Result createVoucherOrder(Long voucherId, Long userId){
+        // 查询订单
+        int count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
+        // 判断有无订单数据
+        if(count > 0){
+            // 已经买过了
+            return Result.fail("用户曾购买过");
+        }
+
         // 尝试扣减库存
         boolean success = seckillVoucherService.update()
                 .setSql("stock = stock - 1")
                 .eq("voucher_id", voucherId)
+                // .eq("stock", voucher.getStock()) // 乐观锁判断
+                .gt("stock", 0) // 改进乐观锁逻辑，同时利用update原子性/MySQL行锁防止超卖
                 .update();
 
         // 库存不足扣减失败
@@ -64,14 +89,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         voucherOrder.setId(orderId);
 
         // 用户ID
-        Long userId = UserHolder.getUser().getId();
         voucherOrder.setUserId(userId);
 
         // 秒杀ID
         voucherOrder.setVoucherId(voucherId);
         save(voucherOrder);
 
-        // 返回订单ID
         return Result.ok(orderId);
     }
 }
