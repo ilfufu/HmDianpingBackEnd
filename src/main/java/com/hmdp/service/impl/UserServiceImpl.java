@@ -13,10 +13,12 @@ import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 import java.util.HashMap;
@@ -111,5 +113,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         user.setNickName(USER_NICK_NAME_PREFIX + RandomUtil.randomNumbers(10));
         save(user);
         return user;
+    }
+
+    @Override
+    public Result logout(HttpServletRequest request){
+        String tokenKey = RedisConstants.LOGIN_USER_KEY + request.getHeader("authorization");
+        stringRedisTemplate.delete(tokenKey);
+        UserHolder.removeUser();
+        return Result.ok();
     }
 }
